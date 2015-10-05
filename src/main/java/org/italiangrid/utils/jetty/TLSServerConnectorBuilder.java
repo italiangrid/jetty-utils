@@ -17,11 +17,14 @@ package org.italiangrid.utils.jetty;
 
 import java.io.File;
 import java.io.IOException;
+import java.security.KeyManagementException;
 import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
 
+import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLEngine;
+import javax.net.ssl.TrustManager;
 
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.server.HttpConfiguration;
@@ -33,6 +36,7 @@ import org.eclipse.jetty.server.SslConnectionFactory;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 
 import eu.emi.security.authn.x509.X509CertChainValidatorExt;
+import eu.emi.security.authn.x509.helpers.ssl.SSLTrustManager;
 import eu.emi.security.authn.x509.impl.PEMCredential;
 import eu.emi.security.authn.x509.impl.SocketFactoryCreator;
 
@@ -114,6 +118,11 @@ public class TLSServerConnectorBuilder {
   private HttpConfiguration httpConfiguration;
 
   /**
+   * The key manager to use for the connector being created.
+   */
+  private KeyManager keyManager;
+
+  /**
    * The server for which the connector is being created.
    */
   private final Server server;
@@ -164,6 +173,25 @@ public class TLSServerConnectorBuilder {
     checkFileExistsAndIsReadable(new File(certificateKeyFile),
       "Error accessing certificate key file");
 
+  }
+
+  private void loadCredentials() {
+
+    credentialsSanityChecks();
+
+    PEMCredential serviceCredentials = null;
+
+    try {
+
+      serviceCredentials = new PEMCredential(certificateKeyFile,
+        certificateFile, certicateKeyPassword);
+
+    } catch (KeyStoreException | CertificateException | IOException e) {
+
+      throw new RuntimeException("Error setting up service credentials", e);
+    }
+
+    keyManager = serviceCredentials.getKeyManager();
   }
 
   /**
@@ -394,6 +422,40 @@ public class TLSServerConnectorBuilder {
   }
 
   /**
+   * Sets the {@link KeyManager} for the connector being built.
+   * 
+   * @param km
+   *          the {@link KeyManager} to use
+   * @return this builder
+   */
+  public TLSServerConnectorBuilder withKeyManager(KeyManager km) {
+
+    this.keyManager = km;
+    return this;
+  }
+
+  private SSLContext buildSSLContext() {
+
+    SSLContext sslCtx;
+
+    try {
+
+      KeyManager[] kms = new KeyManager[] { keyManager };
+      SSLTrustManager tm = new SSLTrustManager(certificateValidator);
+
+      sslCtx = SSLContext.getInstance("TLS");
+      sslCtx.init(kms, new TrustManager[] { tm }, null);
+
+    } catch (NoSuchAlgorithmException e) {
+      throw new RuntimeException("TLS protocol not supported.", e);
+    } catch (KeyManagementException e) {
+      throw new RuntimeException(e);
+    }
+
+    return sslCtx;
+  }
+
+  /**
    * Builds a {@link ServerConnector} based on the
    * {@link TLSServerConnectorBuilder} parameters
    * 
@@ -401,23 +463,11 @@ public class TLSServerConnectorBuilder {
    */
   public ServerConnector build() {
 
-    credentialsSanityChecks();
-
-    PEMCredential serviceCredentials = null;
-
-    try {
-
-      serviceCredentials = new PEMCredential(certificateKeyFile,
-        certificateFile, certicateKeyPassword);
-
-    } catch (KeyStoreException | CertificateException | IOException e) {
-
-      throw new RuntimeException("Error setting up service credentials", e);
+    if (keyManager == null) {
+      loadCredentials();
     }
 
-    SSLContext sslContext = SocketFactoryCreator.getSSLContext(
-      serviceCredentials, certificateValidator, null);
-
+    SSLContext sslContext = buildSSLContext();
     SslContextFactory cf = new SslContextFactory();
     cf.setSslContext(sslContext);
 
