@@ -52,7 +52,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
-    <jetty.version>9.2.26.v20180806</jetty.version>
+    <jetty.version>9.4.12.v20180830</jetty.version>
     <slf4j.version>1.7.2</slf4j.version>
     <logback.version>1.0.9</logback.version>
     <voms-api-java.version>3.3.0</voms-api-java.version>
@@ -173,6 +173,7 @@
       <groupId>org.eclipse.jetty.aggregate</groupId>
       <artifactId>jetty-all</artifactId>
       <version>${jetty.version}</version>
+      <type>pom</type>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
