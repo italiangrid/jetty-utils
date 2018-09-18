@@ -10,8 +10,6 @@ pipeline {
 
   triggers { cron('@daily') }
 
-
-
   stages {
     stage('checkout') {
       steps {
@@ -20,6 +18,7 @@ pipeline {
           checkout scm
           stash name: 'code', useDefaultExcludes: false
         }
+      }
     }
     stage('deploy'){
       steps {
