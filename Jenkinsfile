@@ -10,20 +10,17 @@ pipeline {
 
   triggers { cron('@daily') }
 
-  parameters {
-    string(name: 'BRANCH', defaultValue: 'master', description: '' )
-  }
 
 
   stages {
-    stage('prepare'){
+    stage('checkout') {
       steps {
         container('maven-runner'){
-          git branch: "${params.BRANCH}", url: 'https://github.com/italiangrid/jetty-utils'
+          deleteDir()
+          checkout scm
+          stash name: 'code', useDefaultExcludes: false
         }
-      }
     }
-
     stage('deploy'){
       steps {
         container('maven-runner'){
