@@ -38,7 +38,6 @@ import org.eclipse.jetty.util.ssl.SslContextFactory;
 import eu.emi.security.authn.x509.X509CertChainValidatorExt;
 import eu.emi.security.authn.x509.helpers.ssl.SSLTrustManager;
 import eu.emi.security.authn.x509.impl.PEMCredential;
-import eu.emi.security.authn.x509.impl.SocketFactoryCreator;
 
 /**
  * A builder that configures a Jetty server TLS connector integrated with CANL
