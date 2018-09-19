@@ -22,6 +22,9 @@ import java.util.concurrent.TimeUnit;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.util.thread.ThreadPool;
 
+import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.jetty9.InstrumentedQueuedThreadPool;
+
 /**
  * 
  * A builder to support thread pool configuration for a Jetty server.
@@ -42,6 +45,8 @@ public class ThreadPoolBuilder {
   private int idleTimeout = IDLE_TIMEOUT;
   private int maxRequestQueueSize;
 
+  private MetricRegistry registry;
+
   /**
    * Returns a new {@link ThreadPoolBuilder} instance.
    * 
@@ -55,7 +60,7 @@ public class ThreadPoolBuilder {
   /**
    * Sets the max number of threads for the thread pool.
    * 
-   * @param maxNumberOfThreads the max number of threads 
+   * @param maxNumberOfThreads the max number of threads
    * 
    * @return this builder
    * 
@@ -92,6 +97,16 @@ public class ThreadPoolBuilder {
   }
 
   /**
+   * Sets the registry for this thread pool
+   * @param registry the metric registry
+   * @return this builder
+   */
+  public ThreadPoolBuilder registry(MetricRegistry registry) {
+    this.registry = registry;
+    return this;
+  }
+
+  /**
    * ctor.
    * 
    */
@@ -118,11 +133,15 @@ public class ThreadPoolBuilder {
       minThreads = MIN_THREADS;
     }
 
-    BlockingQueue<Runnable> queue = new ArrayBlockingQueue<Runnable>(
-      MAX_REQUEST_QUEUE_SIZE);
+    BlockingQueue<Runnable> queue = new ArrayBlockingQueue<Runnable>(MAX_REQUEST_QUEUE_SIZE);
 
-    QueuedThreadPool tp = new QueuedThreadPool(maxThreads, minThreads,
-      idleTimeout, queue);
+    QueuedThreadPool tp = null;
+
+    if (registry == null) {
+      tp = new QueuedThreadPool(maxThreads, minThreads, idleTimeout, queue);
+    } else {
+      tp = new InstrumentedQueuedThreadPool(registry, maxThreads, minThreads, idleTimeout, queue);
+    }
 
     return tp;
 
