@@ -31,7 +31,10 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 
 import org.conscrypt.OpenSSLProvider;
+import org.eclipse.jetty.alpn.server.ALPNServerConnectionFactory;
 import org.eclipse.jetty.http.HttpVersion;
+import org.eclipse.jetty.http2.HTTP2Cipher;
+import org.eclipse.jetty.http2.server.HTTP2ServerConnectionFactory;
 import org.eclipse.jetty.server.ConnectionFactory;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
@@ -157,6 +160,12 @@ public class TLSServerConnectorBuilder {
 
 
   /**
+   * Whether HTTP/2 should be configured
+   */
+  private boolean enableHttp2 = false;
+
+
+  /**
    * Returns an instance of the {@link TLSServerConnectorBuilder}.
    * 
    * @param s the {@link Server} for which the connector is being created
@@ -246,8 +255,6 @@ public class TLSServerConnectorBuilder {
     if (useConscrypt) {
       contextFactory.setProvider(CONSCRYPT_PROVIDER);
     }
-
-    contextFactory.setEndpointIdentificationAlgorithm(null);
   }
 
   /**
@@ -443,6 +450,11 @@ public class TLSServerConnectorBuilder {
     return this;
   }
 
+  public TLSServerConnectorBuilder withHttp2(boolean http2Enabled) {
+    this.enableHttp2 = http2Enabled;
+    return this;
+  }
+
   public TLSServerConnectorBuilder metricRegistry(MetricRegistry registry) {
     this.registry = registry;
     return this;
@@ -467,7 +479,7 @@ public class TLSServerConnectorBuilder {
         if (isNull(Security.getProvider(CONSCRYPT_PROVIDER))) {
           Security.addProvider(new OpenSSLProvider());
         }
-        
+
         sslCtx = SSLContext.getInstance("TLS", CONSCRYPT_PROVIDER);
       } else {
         sslCtx = SSLContext.getInstance("TLS");
@@ -508,21 +520,54 @@ public class TLSServerConnectorBuilder {
       httpConfiguration = defaultHttpConfiguration();
     }
 
+
+    HttpConnectionFactory httpConnFactory = new HttpConnectionFactory(httpConfiguration);
     ConnectionFactory connFactory = null;
 
     if (registry != null) {
-      connFactory = new InstrumentedConnectionFactory(new HttpConnectionFactory(httpConfiguration),
-          registry.timer(metricName));
+      connFactory = new InstrumentedConnectionFactory(httpConnFactory, registry.timer(metricName));
     } else {
-      connFactory = new HttpConnectionFactory(httpConfiguration);
+      connFactory = httpConnFactory;
     }
 
-    ServerConnector connector = new ServerConnector(server,
-        new SslConnectionFactory(cf, HttpVersion.HTTP_1_1.asString()), connFactory);
+
+    ConnectionFactory h2ConnFactory = null;
+    ServerConnector connector = null;
+
+    if (enableHttp2) {
+
+      HTTP2ServerConnectionFactory h2cf = new HTTP2ServerConnectionFactory(httpConfiguration);
+
+      if (registry != null) {
+        h2ConnFactory = new InstrumentedConnectionFactory(h2cf, registry.timer(metricName));
+      } else {
+        h2ConnFactory = h2cf;
+      }
+      ALPNServerConnectionFactory alpn = createAlpnProtocolFactory(httpConnFactory);
+      cf.setCipherComparator(HTTP2Cipher.COMPARATOR);
+      cf.setUseCipherSuitesOrder(true);
+
+      SslConnectionFactory sslCf = new SslConnectionFactory(cf, alpn.getProtocol());
+
+      connector = new ServerConnector(server, sslCf, alpn, h2ConnFactory, httpConnFactory);
+
+    } else {
+
+      connector = new ServerConnector(server,
+          new SslConnectionFactory(cf, HttpVersion.HTTP_1_1.asString()), connFactory);
+    }
 
     connector.setPort(port);
     return connector;
   }
+
+  private ALPNServerConnectionFactory createAlpnProtocolFactory(
+      HttpConnectionFactory httpConnectionFactory) {
+    ALPNServerConnectionFactory alpn = new ALPNServerConnectionFactory();
+    alpn.setDefaultProtocol(httpConnectionFactory.getProtocol());
+    return alpn;
+  }
+
 
   /**
    * Checks that file exists and is readable.
