@@ -20,12 +20,15 @@ import java.io.IOException;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
+import java.security.Security;
 import java.security.cert.CertificateException;
 
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 
+import org.conscrypt.OpenSSLProvider;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.server.ConnectionFactory;
 import org.eclipse.jetty.server.HttpConfiguration;
@@ -49,6 +52,11 @@ import eu.emi.security.authn.x509.impl.PEMCredential;
  * 
  */
 public class TLSServerConnectorBuilder {
+
+  /**
+   * Conscrypt provider name.
+   */
+  public static final String CONSCRYPT_PROVIDER = "Conscrypt";
 
   /**
    * Default service certificate file.
@@ -140,6 +148,11 @@ public class TLSServerConnectorBuilder {
    */
   private MetricRegistry registry;
 
+  /**
+   * Whether the Conscrypt provider should be used instead of the default JSSE implementation
+   */
+  private boolean useConscrypt = false;
+
 
   /**
    * Returns an instance of the {@link TLSServerConnectorBuilder}.
@@ -228,6 +241,11 @@ public class TLSServerConnectorBuilder {
     contextFactory.setWantClientAuth(tlsWantClientAuth);
     contextFactory.setNeedClientAuth(tlsNeedClientAuth);
 
+    if (useConscrypt) {
+      contextFactory.setProvider(CONSCRYPT_PROVIDER);
+    }
+    
+    contextFactory.setEndpointIdentificationAlgorithm(null);
   }
 
   /**
@@ -418,6 +436,11 @@ public class TLSServerConnectorBuilder {
     return this;
   }
 
+  public TLSServerConnectorBuilder withConscrypt(boolean conscryptEnabled) {
+    this.useConscrypt = conscryptEnabled;
+    return this;
+  }
+
   public TLSServerConnectorBuilder metricRegistry(MetricRegistry registry) {
     this.registry = registry;
     return this;
@@ -437,13 +460,21 @@ public class TLSServerConnectorBuilder {
       KeyManager[] kms = new KeyManager[] {keyManager};
       SSLTrustManager tm = new SSLTrustManager(certificateValidator);
 
-      sslCtx = SSLContext.getInstance("TLS");
+      if (useConscrypt) {
+        Security.addProvider(new OpenSSLProvider());
+        sslCtx = SSLContext.getInstance("TLS", CONSCRYPT_PROVIDER);
+      } else {
+        sslCtx = SSLContext.getInstance("TLS");
+      }
+      
       sslCtx.init(kms, new TrustManager[] {tm}, null);
 
     } catch (NoSuchAlgorithmException e) {
       throw new RuntimeException("TLS protocol not supported.", e);
     } catch (KeyManagementException e) {
       throw new RuntimeException(e);
+    } catch (NoSuchProviderException e) {
+      throw new RuntimeException("Conscrypt provider not supported.", e);
     }
 
     return sslCtx;
@@ -462,6 +493,7 @@ public class TLSServerConnectorBuilder {
 
     SSLContext sslContext = buildSSLContext();
     SslContextFactory cf = new SslContextFactory();
+    
     cf.setSslContext(sslContext);
 
     configureContextFactory(cf);
@@ -471,7 +503,7 @@ public class TLSServerConnectorBuilder {
     }
 
     ConnectionFactory connFactory = null;
-    
+
     if (registry != null) {
       connFactory = new InstrumentedConnectionFactory(new HttpConnectionFactory(httpConfiguration),
           registry.timer(metricName));

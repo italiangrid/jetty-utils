@@ -5,7 +5,7 @@
 
   <groupId>org.italiangrid</groupId>
   <artifactId>jetty-utils</artifactId>
-  <version>0.3.0-SNAPSHOT</version>
+  <version>0.4.0-SNAPSHOT</version>
   <packaging>jar</packaging>
 
   <name>jetty-utils</name>
@@ -52,11 +52,11 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
-    <jetty.version>9.4.12.v20180830</jetty.version>
+    <jetty.version>9.4.15.v20190215</jetty.version>
     <slf4j.version>1.7.2</slf4j.version>
     <logback.version>1.0.9</logback.version>
     <voms-api-java.version>3.3.0</voms-api-java.version>
-    <metrics.version>4.0.0</metrics.version>
+    <metrics.version>4.0.5</metrics.version>
 
     <plugin.compiler.version>3.1</plugin.compiler.version>
     <plugin.javadoc.version>2.9.1</plugin.javadoc.version>
@@ -105,8 +105,8 @@
         <artifactId>maven-compiler-plugin</artifactId>
         <version>${plugin.compiler.version}</version>
         <configuration>
-          <source>1.7</source>
-          <target>1.7</target>
+          <source>1.8</source>
+          <target>1.8</target>
         </configuration>
       </plugin>
 
@@ -175,6 +175,16 @@
       <artifactId>jetty-all</artifactId>
       <version>${jetty.version}</version>
       <type>pom</type>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty.http2</groupId>
+      <artifactId>http2-server</artifactId>
+      <version>${jetty.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty</groupId>
+      <artifactId>jetty-alpn-conscrypt-server</artifactId>
+      <version>${jetty.version}</version>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
