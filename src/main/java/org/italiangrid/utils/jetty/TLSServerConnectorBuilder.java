@@ -15,6 +15,8 @@
  */
 package org.italiangrid.utils.jetty;
 
+import static java.util.Objects.isNull;
+
 import java.io.File;
 import java.io.IOException;
 import java.security.KeyManagementException;
@@ -244,7 +246,7 @@ public class TLSServerConnectorBuilder {
     if (useConscrypt) {
       contextFactory.setProvider(CONSCRYPT_PROVIDER);
     }
-    
+
     contextFactory.setEndpointIdentificationAlgorithm(null);
   }
 
@@ -461,12 +463,16 @@ public class TLSServerConnectorBuilder {
       SSLTrustManager tm = new SSLTrustManager(certificateValidator);
 
       if (useConscrypt) {
-        Security.addProvider(new OpenSSLProvider());
+
+        if (isNull(Security.getProvider(CONSCRYPT_PROVIDER))) {
+          Security.addProvider(new OpenSSLProvider());
+        }
+        
         sslCtx = SSLContext.getInstance("TLS", CONSCRYPT_PROVIDER);
       } else {
         sslCtx = SSLContext.getInstance("TLS");
       }
-      
+
       sslCtx.init(kms, new TrustManager[] {tm}, null);
 
     } catch (NoSuchAlgorithmException e) {
@@ -493,7 +499,7 @@ public class TLSServerConnectorBuilder {
 
     SSLContext sslContext = buildSSLContext();
     SslContextFactory cf = new SslContextFactory();
-    
+
     cf.setSslContext(sslContext);
 
     configureContextFactory(cf);
