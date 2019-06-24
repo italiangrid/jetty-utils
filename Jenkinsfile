@@ -1,7 +1,16 @@
 #!/usr/bin/env groovy
+@Library('sd')_
+def kubeLabel = getKubeLabel()
 
 pipeline {
-  agent { label 'maven' }
+  agent {
+      kubernetes {
+          label "${kubeLabel}"
+          cloud 'Kube mwdevel'
+          defaultContainer 'runner'
+          inheritFrom 'ci-template'
+      }
+  }
 
   options {
     timeout(time: 1, unit: 'HOURS')
@@ -13,18 +22,14 @@ pipeline {
   stages {
     stage('checkout') {
       steps {
-        container('maven-runner'){
           deleteDir()
           checkout scm
           stash name: 'code', useDefaultExcludes: false
-        }
       }
     }
     stage('deploy'){
       steps {
-        container('maven-runner'){
           sh "mvn clean -U -B deploy"
-        }
       }
     }
   }
