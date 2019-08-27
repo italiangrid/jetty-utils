@@ -26,10 +26,12 @@ import java.security.NoSuchProviderException;
 import java.security.Security;
 import java.security.cert.CertificateException;
 
+import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.conscrypt.OpenSSLProvider;
 import org.eclipse.jetty.alpn.server.ALPNServerConnectionFactory;
 import org.eclipse.jetty.http.HttpVersion;
@@ -164,6 +166,20 @@ public class TLSServerConnectorBuilder {
    */
   private boolean enableHttp2 = false;
 
+  /**
+   * Which TLS protocol string should be used
+   */
+  private String tlsProtocol = "TLSv1.2";
+
+  /**
+   * Custom TLS hostname verifier
+   */
+  private HostnameVerifier hostnameVerifier = null;
+  
+  /**
+   * Disable JSSE hostname verification
+   */
+  private boolean disableJsseHostnameVerification = false;
 
   /**
    * Returns an instance of the {@link TLSServerConnectorBuilder}.
@@ -220,7 +236,7 @@ public class TLSServerConnectorBuilder {
 
     } catch (KeyStoreException | CertificateException | IOException e) {
 
-      throw new RuntimeException("Error setting up service credentials", e);
+      throw new TLSConnectorBuilderError("Error setting up service credentials", e);
     }
 
     keyManager = serviceCredentials.getKeyManager();
@@ -254,7 +270,18 @@ public class TLSServerConnectorBuilder {
 
     if (useConscrypt) {
       contextFactory.setProvider(CONSCRYPT_PROVIDER);
+    } else {
+      contextFactory.setProvider(BouncyCastleProvider.PROVIDER_NAME);
     }
+    
+    if (hostnameVerifier != null) {
+      contextFactory.setHostnameVerifier(hostnameVerifier);
+    }
+    
+    if (disableJsseHostnameVerification) {
+      contextFactory.setEndpointIdentificationAlgorithm(null);
+    }
+    
   }
 
   /**
@@ -465,6 +492,21 @@ public class TLSServerConnectorBuilder {
     return this;
   }
 
+  public TLSServerConnectorBuilder withTlsProtocol(String tlsProtocol) {
+    this.tlsProtocol = tlsProtocol;
+    return this;
+  }
+
+  public TLSServerConnectorBuilder withHostnameVerifier(HostnameVerifier verifier) {
+    this.hostnameVerifier = verifier;
+    return this;
+  }
+  
+  public TLSServerConnectorBuilder withDisableJsseHostnameVerification(boolean disableJsseHostnameVerification) {
+    this.disableJsseHostnameVerification = disableJsseHostnameVerification;
+    return this;
+  }
+
   private SSLContext buildSSLContext() {
 
     SSLContext sslCtx;
@@ -480,19 +522,20 @@ public class TLSServerConnectorBuilder {
           Security.addProvider(new OpenSSLProvider());
         }
 
-        sslCtx = SSLContext.getInstance("TLS", CONSCRYPT_PROVIDER);
+        sslCtx = SSLContext.getInstance(tlsProtocol, CONSCRYPT_PROVIDER);
       } else {
-        sslCtx = SSLContext.getInstance("TLS");
+        sslCtx = SSLContext.getInstance(tlsProtocol);
       }
 
       sslCtx.init(kms, new TrustManager[] {tm}, null);
 
     } catch (NoSuchAlgorithmException e) {
-      throw new RuntimeException("TLS protocol not supported.", e);
+
+      throw new TLSConnectorBuilderError("TLS protocol not supported: " + e.getMessage(), e);
     } catch (KeyManagementException e) {
-      throw new RuntimeException(e);
+      throw new TLSConnectorBuilderError(e);
     } catch (NoSuchProviderException e) {
-      throw new RuntimeException("Conscrypt provider not supported.", e);
+      throw new TLSConnectorBuilderError("TLS provider error: " + e.getMessage(), e);
     }
 
     return sslCtx;
@@ -513,6 +556,7 @@ public class TLSServerConnectorBuilder {
     SslContextFactory cf = new SslContextFactory();
 
     cf.setSslContext(sslContext);
+
 
     configureContextFactory(cf);
 
@@ -591,7 +635,7 @@ public class TLSServerConnectorBuilder {
 
     if (errorMessage != null) {
       String msg = String.format("%s: %s [%s]", prefix, errorMessage, f.getAbsolutePath());
-      throw new RuntimeException(msg);
+      throw new TLSConnectorBuilderError(msg);
     }
 
   }
