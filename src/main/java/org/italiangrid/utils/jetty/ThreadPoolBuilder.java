@@ -32,18 +32,18 @@ import com.codahale.metrics.jetty9.InstrumentedQueuedThreadPool;
  */
 public class ThreadPoolBuilder {
 
-  public static final int MAX_REQUEST_QUEUE_SIZE = 200;
+  public static final int DEFAULT_MAX_REQUEST_QUEUE_SIZE = 200;
 
-  public static final int MAX_THREADS = 50;
-  public static final int MIN_THREADS = 1;
+  public static final int DEFAULT_MAX_THREADS = 50;
+  public static final int DEFAULT_MIN_THREADS = 1;
 
-  public static final int IDLE_TIMEOUT = (int) TimeUnit.MINUTES.toMillis(60);
+  public static final int DEFAULT_IDLE_TIMEOUT = (int) TimeUnit.MINUTES.toMillis(60);
 
-  private int maxThreads = MAX_THREADS;
-  private int minThreads = MIN_THREADS;
+  private int maxThreads = DEFAULT_MAX_THREADS;
+  private int minThreads = DEFAULT_MIN_THREADS;
 
-  private int idleTimeout = IDLE_TIMEOUT;
-  private int maxRequestQueueSize;
+  private int idleTimeout = DEFAULT_IDLE_TIMEOUT;
+  private int maxRequestQueueSize = DEFAULT_MAX_REQUEST_QUEUE_SIZE;
 
   private MetricRegistry registry;
 
@@ -98,11 +98,23 @@ public class ThreadPoolBuilder {
 
   /**
    * Sets the registry for this thread pool
+   * 
    * @param registry the metric registry
    * @return this builder
    */
   public ThreadPoolBuilder registry(MetricRegistry registry) {
     this.registry = registry;
+    return this;
+  }
+
+  /**
+   * Sets the idle timeout in msec for this thread pool
+   * 
+   * @param idleTimeout the timeout in milliseconds
+   * @return this builder
+   */
+  public ThreadPoolBuilder withIdleTimeoutMsec(int idleTimeout) {
+    this.idleTimeout = idleTimeout;
     return this;
   }
 
@@ -122,18 +134,22 @@ public class ThreadPoolBuilder {
   public ThreadPool build() {
 
     if (maxRequestQueueSize <= 0) {
-      maxRequestQueueSize = MAX_REQUEST_QUEUE_SIZE;
+      maxRequestQueueSize = DEFAULT_MAX_REQUEST_QUEUE_SIZE;
     }
 
     if (maxThreads <= 0) {
-      maxThreads = MAX_THREADS;
+      maxThreads = DEFAULT_MAX_THREADS;
     }
 
     if (minThreads <= 0) {
-      minThreads = MIN_THREADS;
+      minThreads = DEFAULT_MIN_THREADS;
     }
 
-    BlockingQueue<Runnable> queue = new ArrayBlockingQueue<Runnable>(MAX_REQUEST_QUEUE_SIZE);
+    if (idleTimeout <= 0) {
+      idleTimeout = DEFAULT_IDLE_TIMEOUT;
+    }
+
+    BlockingQueue<Runnable> queue = new ArrayBlockingQueue<>(maxRequestQueueSize);
 
     QueuedThreadPool tp = null;
 

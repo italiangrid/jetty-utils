@@ -5,7 +5,7 @@
 
   <groupId>org.italiangrid</groupId>
   <artifactId>jetty-utils</artifactId>
-  <version>0.4.3.v20200825</version>
+  <version>0.4.4.v20201211</version>
   <packaging>jar</packaging>
 
   <name>jetty-utils</name>
