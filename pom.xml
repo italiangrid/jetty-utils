@@ -5,7 +5,7 @@
 
   <groupId>org.italiangrid</groupId>
   <artifactId>jetty-utils</artifactId>
-  <version>0.4.2.v20200516</version>
+  <version>0.4.5.v20211125</version>
   <packaging>jar</packaging>
 
   <name>jetty-utils</name>
@@ -52,10 +52,10 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
-    <jetty.version>9.4.28.v20200408</jetty.version>
+    <jetty.version>9.4.30.v20200611</jetty.version>
     <slf4j.version>1.7.2</slf4j.version>
     <logback.version>1.0.9</logback.version>
-    <voms-api-java.version>3.3.0</voms-api-java.version>
+    <voms-api-java.version>3.3.2</voms-api-java.version>
     <metrics.version>4.0.5</metrics.version>
 
     <plugin.compiler.version>3.1</plugin.compiler.version>
@@ -200,7 +200,7 @@
     <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
-      <version>4.10</version>
+      <version>4.13.1</version>
       <scope>test</scope>
     </dependency>
     <dependency>

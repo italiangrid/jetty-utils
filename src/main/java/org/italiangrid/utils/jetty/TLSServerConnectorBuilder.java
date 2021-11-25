@@ -175,11 +175,21 @@ public class TLSServerConnectorBuilder {
    * Custom TLS hostname verifier
    */
   private HostnameVerifier hostnameVerifier = null;
-  
+
   /**
    * Disable JSSE hostname verification
    */
   private boolean disableJsseHostnameVerification = false;
+
+  /**
+   * Number of acceptors threads for the connector
+   */
+  private int acceptors = -1;
+
+  /**
+   * Number of selector threads for the connector
+   */
+  private int selectors = -1;
 
   /**
    * Returns an instance of the {@link TLSServerConnectorBuilder}.
@@ -247,7 +257,7 @@ public class TLSServerConnectorBuilder {
    * 
    * @param contextFactory the {@link SslContextFactory} being configured
    */
-  private void configureContextFactory(SslContextFactory contextFactory) {
+  private void configureContextFactory(SslContextFactory.Server contextFactory) {
 
     if (excludeProtocols != null) {
       contextFactory.setExcludeProtocols(excludeProtocols);
@@ -273,15 +283,15 @@ public class TLSServerConnectorBuilder {
     } else {
       contextFactory.setProvider(BouncyCastleProvider.PROVIDER_NAME);
     }
-    
+
     if (hostnameVerifier != null) {
       contextFactory.setHostnameVerifier(hostnameVerifier);
     }
-    
+
     if (disableJsseHostnameVerification) {
       contextFactory.setEndpointIdentificationAlgorithm(null);
     }
-    
+
   }
 
   /**
@@ -501,9 +511,20 @@ public class TLSServerConnectorBuilder {
     this.hostnameVerifier = verifier;
     return this;
   }
-  
-  public TLSServerConnectorBuilder withDisableJsseHostnameVerification(boolean disableJsseHostnameVerification) {
+
+  public TLSServerConnectorBuilder withDisableJsseHostnameVerification(
+      boolean disableJsseHostnameVerification) {
     this.disableJsseHostnameVerification = disableJsseHostnameVerification;
+    return this;
+  }
+
+  public TLSServerConnectorBuilder withAcceptors(int acceptors) {
+    this.acceptors = acceptors;
+    return this;
+  }
+
+  public TLSServerConnectorBuilder withSelectors(int selectors) {
+    this.selectors = selectors;
     return this;
   }
 
@@ -553,7 +574,7 @@ public class TLSServerConnectorBuilder {
     }
 
     SSLContext sslContext = buildSSLContext();
-    SslContextFactory cf = new SslContextFactory();
+    SslContextFactory.Server cf = new SslContextFactory.Server();
 
     cf.setSslContext(sslContext);
 
@@ -593,11 +614,12 @@ public class TLSServerConnectorBuilder {
 
       SslConnectionFactory sslCf = new SslConnectionFactory(cf, alpn.getProtocol());
 
-      connector = new ServerConnector(server, sslCf, alpn, h2ConnFactory, httpConnFactory);
+      connector = new ServerConnector(server, acceptors, selectors, sslCf, alpn, h2ConnFactory,
+          httpConnFactory);
 
     } else {
 
-      connector = new ServerConnector(server,
+      connector = new ServerConnector(server, acceptors, selectors,
           new SslConnectionFactory(cf, HttpVersion.HTTP_1_1.asString()), connFactory);
     }
 
