@@ -59,7 +59,7 @@
     <metrics.version>4.0.5</metrics.version>
 
     <plugin.compiler.version>3.8.0</plugin.compiler.version>
-    <plugin.javadoc.version>2.9.1</plugin.javadoc.version>
+    <plugin.javadoc.version>3.2.0</plugin.javadoc.version>
     <plugin.source.version>2.2.1</plugin.source.version>
     <plugin.gpg.version>1.5</plugin.gpg.version>
     <plugin.release.version>2.2.2</plugin.release.version>
@@ -114,7 +114,7 @@
         <artifactId>maven-javadoc-plugin</artifactId>
         <version>${plugin.javadoc.version}</version>
         <configuration>
-          <source>8</source> <!-- https://bugs.openjdk.java.net/browse/JDK-8212233 -->
+          <source>11</source> <!-- https://bugs.openjdk.java.net/browse/JDK-8212233 -->
           <outputDirectory>${project.build.directory}/javadoc</outputDirectory>
           <reportOutputDirectory>${project.reporting.outputDirectory}/javadoc</reportOutputDirectory>
         </configuration>
