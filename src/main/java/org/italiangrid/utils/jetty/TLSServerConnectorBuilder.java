@@ -1,5 +1,5 @@
 /**
- * Copyright (c) Istituto Nazionale di Fisica Nucleare, 2012-2015.
+ * Copyright (c) Istituto Nazionale di Fisica Nucleare, 2012-2019.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,18 +15,29 @@
  */
 package org.italiangrid.utils.jetty;
 
+import static java.util.Objects.isNull;
+
 import java.io.File;
 import java.io.IOException;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
+import java.security.Security;
 import java.security.cert.CertificateException;
 
+import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.conscrypt.OpenSSLProvider;
+import org.eclipse.jetty.alpn.server.ALPNServerConnectionFactory;
 import org.eclipse.jetty.http.HttpVersion;
+import org.eclipse.jetty.http2.HTTP2Cipher;
+import org.eclipse.jetty.http2.server.HTTP2ServerConnectionFactory;
+import org.eclipse.jetty.server.ConnectionFactory;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.SecureRequestCustomizer;
@@ -35,10 +46,12 @@ import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.SslConnectionFactory;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 
+import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.jetty9.InstrumentedConnectionFactory;
+
 import eu.emi.security.authn.x509.X509CertChainValidatorExt;
 import eu.emi.security.authn.x509.helpers.ssl.SSLTrustManager;
 import eu.emi.security.authn.x509.impl.PEMCredential;
-import eu.emi.security.authn.x509.impl.SocketFactoryCreator;
 
 /**
  * A builder that configures a Jetty server TLS connector integrated with CANL
@@ -46,6 +59,11 @@ import eu.emi.security.authn.x509.impl.SocketFactoryCreator;
  * 
  */
 public class TLSServerConnectorBuilder {
+
+  /**
+   * Conscrypt provider name.
+   */
+  public static final String CONSCRYPT_PROVIDER = "Conscrypt";
 
   /**
    * Default service certificate file.
@@ -128,16 +146,60 @@ public class TLSServerConnectorBuilder {
   private final Server server;
 
   /**
+   * The metric name to associate to the connector being built.
+   */
+  private String metricName;
+
+  /**
+   * The metric registry.
+   */
+  private MetricRegistry registry;
+
+  /**
+   * Whether the Conscrypt provider should be used instead of the default JSSE implementation
+   */
+  private boolean useConscrypt = false;
+
+
+  /**
+   * Whether HTTP/2 should be configured
+   */
+  private boolean enableHttp2 = false;
+
+  /**
+   * Which TLS protocol string should be used
+   */
+  private String tlsProtocol = "TLSv1.2";
+
+  /**
+   * Custom TLS hostname verifier
+   */
+  private HostnameVerifier hostnameVerifier = null;
+
+  /**
+   * Disable JSSE hostname verification
+   */
+  private boolean disableJsseHostnameVerification = false;
+
+  /**
+   * Number of acceptors threads for the connector
+   */
+  private int acceptors = -1;
+
+  /**
+   * Number of selector threads for the connector
+   */
+  private int selectors = -1;
+
+  /**
    * Returns an instance of the {@link TLSServerConnectorBuilder}.
    * 
-   * @param s
-   *          the {@link Server} for which the connector is being created
-   * @param certificateValidator
-   *          a {@link X509CertChainValidatorExt} used to validate certificates
+   * @param s the {@link Server} for which the connector is being created
+   * @param certificateValidator a {@link X509CertChainValidatorExt} used to validate certificates
    * @return an instance of the {@link TLSServerConnectorBuilder}
    */
   public static TLSServerConnectorBuilder instance(Server s,
-    X509CertChainValidatorExt certificateValidator) {
+      X509CertChainValidatorExt certificateValidator) {
 
     return new TLSServerConnectorBuilder(s, certificateValidator);
   }
@@ -145,13 +207,10 @@ public class TLSServerConnectorBuilder {
   /**
    * Private ctor.
    * 
-   * @param s
-   *          the {@link Server} for which the connector is being created
-   * @param certificateValidator
-   *          a {@link X509CertChainValidatorExt} used to validate certificates
+   * @param s the {@link Server} for which the connector is being created
+   * @param certificateValidator a {@link X509CertChainValidatorExt} used to validate certificates
    */
-  private TLSServerConnectorBuilder(Server s,
-    X509CertChainValidatorExt certificateValidator) {
+  private TLSServerConnectorBuilder(Server s, X509CertChainValidatorExt certificateValidator) {
 
     if (s == null) {
       throw new IllegalArgumentException("Server cannot be null");
@@ -167,11 +226,10 @@ public class TLSServerConnectorBuilder {
 
   private void credentialsSanityChecks() {
 
-    checkFileExistsAndIsReadable(new File(certificateFile),
-      "Error accessing certificate file");
+    checkFileExistsAndIsReadable(new File(certificateFile), "Error accessing certificate file");
 
     checkFileExistsAndIsReadable(new File(certificateKeyFile),
-      "Error accessing certificate key file");
+        "Error accessing certificate key file");
 
   }
 
@@ -183,12 +241,12 @@ public class TLSServerConnectorBuilder {
 
     try {
 
-      serviceCredentials = new PEMCredential(certificateKeyFile,
-        certificateFile, certicateKeyPassword);
+      serviceCredentials =
+          new PEMCredential(certificateKeyFile, certificateFile, certicateKeyPassword);
 
     } catch (KeyStoreException | CertificateException | IOException e) {
 
-      throw new RuntimeException("Error setting up service credentials", e);
+      throw new TLSConnectorBuilderError("Error setting up service credentials", e);
     }
 
     keyManager = serviceCredentials.getKeyManager();
@@ -197,10 +255,9 @@ public class TLSServerConnectorBuilder {
   /**
    * Configures SSL session parameters for the jetty {@link SslContextFactory}.
    * 
-   * @param contextFactory
-   *          the {@link SslContextFactory} being configured
+   * @param contextFactory the {@link SslContextFactory} being configured
    */
-  private void configureContextFactory(SslContextFactory contextFactory) {
+  private void configureContextFactory(SslContextFactory.Server contextFactory) {
 
     if (excludeProtocols != null) {
       contextFactory.setExcludeProtocols(excludeProtocols);
@@ -221,11 +278,24 @@ public class TLSServerConnectorBuilder {
     contextFactory.setWantClientAuth(tlsWantClientAuth);
     contextFactory.setNeedClientAuth(tlsNeedClientAuth);
 
+    if (useConscrypt) {
+      contextFactory.setProvider(CONSCRYPT_PROVIDER);
+    } else {
+      contextFactory.setProvider(BouncyCastleProvider.PROVIDER_NAME);
+    }
+
+    if (hostnameVerifier != null) {
+      contextFactory.setHostnameVerifier(hostnameVerifier);
+    }
+
+    if (disableJsseHostnameVerification) {
+      contextFactory.setEndpointIdentificationAlgorithm(null);
+    }
+
   }
 
   /**
-   * Builds a default {@link HttpConfiguration} for the TLS-enabled connector
-   * being created
+   * Builds a default {@link HttpConfiguration} for the TLS-enabled connector being created
    * 
    * @return the default {@link HttpConfiguration}
    */
@@ -251,12 +321,10 @@ public class TLSServerConnectorBuilder {
   }
 
   /**
-   * Gives access to the {@link HttpConfiguration} used for the TLS-enabled
-   * connector being created. If the configuration is not set, it creates it
-   * using {@link #defaultHttpConfiguration()}.
+   * Gives access to the {@link HttpConfiguration} used for the TLS-enabled connector being created.
+   * If the configuration is not set, it creates it using {@link #defaultHttpConfiguration()}.
    * 
-   * @return the {@link HttpConfiguration} being used for the TLS-enabled
-   *         connector.
+   * @return the {@link HttpConfiguration} being used for the TLS-enabled connector.
    */
   public HttpConfiguration httpConfiguration() {
 
@@ -271,8 +339,7 @@ public class TLSServerConnectorBuilder {
   /**
    * Sets the port for the connector being created.
    * 
-   * @param port
-   *          the port for the connector
+   * @param port the port for the connector
    * @return this builder
    */
   public TLSServerConnectorBuilder withPort(int port) {
@@ -284,8 +351,7 @@ public class TLSServerConnectorBuilder {
   /**
    * Sets the certificate file for the connector being created.
    * 
-   * @param certificateFile
-   *          the certificate file
+   * @param certificateFile the certificate file
    * @return this builder
    */
   public TLSServerConnectorBuilder withCertificateFile(String certificateFile) {
@@ -297,12 +363,10 @@ public class TLSServerConnectorBuilder {
   /**
    * Sets the certificate key file for the connector being created.
    * 
-   * @param certificateKeyFile
-   *          the certificate key file
+   * @param certificateKeyFile the certificate key file
    * @return this builder
    */
-  public TLSServerConnectorBuilder withCertificateKeyFile(
-    String certificateKeyFile) {
+  public TLSServerConnectorBuilder withCertificateKeyFile(String certificateKeyFile) {
 
     this.certificateKeyFile = certificateKeyFile;
     return this;
@@ -311,23 +375,20 @@ public class TLSServerConnectorBuilder {
   /**
    * The the certificate key password for the connector being built
    * 
-   * @param certificateKeyPassword
-   *          the certificate key password
+   * @param certificateKeyPassword the certificate key password
    * @return this builder
    */
-  public TLSServerConnectorBuilder withCertificateKeyPassword(
-    char[] certificateKeyPassword) {
+  public TLSServerConnectorBuilder withCertificateKeyPassword(char[] certificateKeyPassword) {
 
     this.certicateKeyPassword = certificateKeyPassword;
     return this;
   }
 
   /**
-   * Sets the {@link SslContextFactory#setNeedClientAuth(boolean)} parameter for
-   * the connector being created.
+   * Sets the {@link SslContextFactory#setNeedClientAuth(boolean)} parameter for the connector being
+   * created.
    * 
-   * @param needClientAuth
-   *          true if client authentication is required
+   * @param needClientAuth true if client authentication is required
    * @return this builder
    */
   public TLSServerConnectorBuilder withNeedClientAuth(boolean needClientAuth) {
@@ -337,11 +398,10 @@ public class TLSServerConnectorBuilder {
   }
 
   /**
-   * Sets the {@link SslContextFactory#setWantClientAuth(boolean)} parameter for
-   * the connector being created.
+   * Sets the {@link SslContextFactory#setWantClientAuth(boolean)} parameter for the connector being
+   * created.
    * 
-   * @param wantClientAuth
-   *          true if client authentication is wanted
+   * @param wantClientAuth true if client authentication is wanted
    * @return this builder
    */
   public TLSServerConnectorBuilder withWantClientAuth(boolean wantClientAuth) {
@@ -351,30 +411,24 @@ public class TLSServerConnectorBuilder {
   }
 
   /**
-   * Sets SSL included protocols. See
-   * {@link SslContextFactory#setIncludeProtocols(String...)}.
+   * Sets SSL included protocols. See {@link SslContextFactory#setIncludeProtocols(String...)}.
    * 
-   * @param includeProtocols
-   *          the array of included protocol names
+   * @param includeProtocols the array of included protocol names
    * @return this builder
    */
-  public TLSServerConnectorBuilder withIncludeProtocols(
-    String... includeProtocols) {
+  public TLSServerConnectorBuilder withIncludeProtocols(String... includeProtocols) {
 
     this.includeProtocols = includeProtocols;
     return this;
   }
 
   /**
-   * Sets SSL excluded protocols. See
-   * {@link SslContextFactory#setExcludeProtocols(String...)}.
+   * Sets SSL excluded protocols. See {@link SslContextFactory#setExcludeProtocols(String...)}.
    * 
-   * @param excludeProtocols
-   *          the array of excluded protocol names
+   * @param excludeProtocols the array of excluded protocol names
    * @return this builder
    */
-  public TLSServerConnectorBuilder withExcludeProtocols(
-    String... excludeProtocols) {
+  public TLSServerConnectorBuilder withExcludeProtocols(String... excludeProtocols) {
 
     this.excludeProtocols = excludeProtocols;
     return this;
@@ -383,12 +437,10 @@ public class TLSServerConnectorBuilder {
   /**
    * Sets the SSL included cipher suites.
    * 
-   * @param includeCipherSuites
-   *          the array of included cipher suites.
+   * @param includeCipherSuites the array of included cipher suites.
    * @return this builder
    */
-  public TLSServerConnectorBuilder withIncludeCipherSuites(
-    String... includeCipherSuites) {
+  public TLSServerConnectorBuilder withIncludeCipherSuites(String... includeCipherSuites) {
 
     this.includeCipherSuites = includeCipherSuites;
     return this;
@@ -397,12 +449,10 @@ public class TLSServerConnectorBuilder {
   /**
    * Sets the SSL ecluded cipher suites.
    * 
-   * @param excludeCipherSuites
-   *          the array of excluded cipher suites.
+   * @param excludeCipherSuites the array of excluded cipher suites.
    * @return this builder
    */
-  public TLSServerConnectorBuilder withExcludeCipherSuites(
-    String... excludeCipherSuites) {
+  public TLSServerConnectorBuilder withExcludeCipherSuites(String... excludeCipherSuites) {
 
     this.excludeCipherSuites = excludeCipherSuites;
     return this;
@@ -411,8 +461,7 @@ public class TLSServerConnectorBuilder {
   /**
    * Sets the {@link HttpConfiguration} for the connector being built.
    * 
-   * @param conf
-   *          the {@link HttpConfiguration} to use
+   * @param conf the {@link HttpConfiguration} to use
    * @return this builder
    */
   public TLSServerConnectorBuilder withHttpConfiguration(HttpConfiguration conf) {
@@ -424,13 +473,58 @@ public class TLSServerConnectorBuilder {
   /**
    * Sets the {@link KeyManager} for the connector being built.
    * 
-   * @param km
-   *          the {@link KeyManager} to use
+   * @param km the {@link KeyManager} to use
    * @return this builder
    */
   public TLSServerConnectorBuilder withKeyManager(KeyManager km) {
 
     this.keyManager = km;
+    return this;
+  }
+
+  public TLSServerConnectorBuilder withConscrypt(boolean conscryptEnabled) {
+    this.useConscrypt = conscryptEnabled;
+    return this;
+  }
+
+  public TLSServerConnectorBuilder withHttp2(boolean http2Enabled) {
+    this.enableHttp2 = http2Enabled;
+    return this;
+  }
+
+  public TLSServerConnectorBuilder metricRegistry(MetricRegistry registry) {
+    this.registry = registry;
+    return this;
+  }
+
+  public TLSServerConnectorBuilder metricName(String metricName) {
+    this.metricName = metricName;
+    return this;
+  }
+
+  public TLSServerConnectorBuilder withTlsProtocol(String tlsProtocol) {
+    this.tlsProtocol = tlsProtocol;
+    return this;
+  }
+
+  public TLSServerConnectorBuilder withHostnameVerifier(HostnameVerifier verifier) {
+    this.hostnameVerifier = verifier;
+    return this;
+  }
+
+  public TLSServerConnectorBuilder withDisableJsseHostnameVerification(
+      boolean disableJsseHostnameVerification) {
+    this.disableJsseHostnameVerification = disableJsseHostnameVerification;
+    return this;
+  }
+
+  public TLSServerConnectorBuilder withAcceptors(int acceptors) {
+    this.acceptors = acceptors;
+    return this;
+  }
+
+  public TLSServerConnectorBuilder withSelectors(int selectors) {
+    this.selectors = selectors;
     return this;
   }
 
@@ -440,24 +534,36 @@ public class TLSServerConnectorBuilder {
 
     try {
 
-      KeyManager[] kms = new KeyManager[] { keyManager };
+      KeyManager[] kms = new KeyManager[] {keyManager};
       SSLTrustManager tm = new SSLTrustManager(certificateValidator);
 
-      sslCtx = SSLContext.getInstance("TLS");
-      sslCtx.init(kms, new TrustManager[] { tm }, null);
+      if (useConscrypt) {
+
+        if (isNull(Security.getProvider(CONSCRYPT_PROVIDER))) {
+          Security.addProvider(new OpenSSLProvider());
+        }
+
+        sslCtx = SSLContext.getInstance(tlsProtocol, CONSCRYPT_PROVIDER);
+      } else {
+        sslCtx = SSLContext.getInstance(tlsProtocol);
+      }
+
+      sslCtx.init(kms, new TrustManager[] {tm}, null);
 
     } catch (NoSuchAlgorithmException e) {
-      throw new RuntimeException("TLS protocol not supported.", e);
+
+      throw new TLSConnectorBuilderError("TLS protocol not supported: " + e.getMessage(), e);
     } catch (KeyManagementException e) {
-      throw new RuntimeException(e);
+      throw new TLSConnectorBuilderError(e);
+    } catch (NoSuchProviderException e) {
+      throw new TLSConnectorBuilderError("TLS provider error: " + e.getMessage(), e);
     }
 
     return sslCtx;
   }
 
   /**
-   * Builds a {@link ServerConnector} based on the
-   * {@link TLSServerConnectorBuilder} parameters
+   * Builds a {@link ServerConnector} based on the {@link TLSServerConnectorBuilder} parameters
    * 
    * @return a {@link ServerConnector}
    */
@@ -468,8 +574,10 @@ public class TLSServerConnectorBuilder {
     }
 
     SSLContext sslContext = buildSSLContext();
-    SslContextFactory cf = new SslContextFactory();
+    SslContextFactory.Server cf = new SslContextFactory.Server();
+
     cf.setSslContext(sslContext);
+
 
     configureContextFactory(cf);
 
@@ -477,24 +585,63 @@ public class TLSServerConnectorBuilder {
       httpConfiguration = defaultHttpConfiguration();
     }
 
-    ServerConnector connector = new ServerConnector(server,
-      new SslConnectionFactory(cf, HttpVersion.HTTP_1_1.asString()),
-      new HttpConnectionFactory(httpConfiguration));
+
+    HttpConnectionFactory httpConnFactory = new HttpConnectionFactory(httpConfiguration);
+    ConnectionFactory connFactory = null;
+
+    if (registry != null) {
+      connFactory = new InstrumentedConnectionFactory(httpConnFactory, registry.timer(metricName));
+    } else {
+      connFactory = httpConnFactory;
+    }
+
+
+    ConnectionFactory h2ConnFactory = null;
+    ServerConnector connector = null;
+
+    if (enableHttp2) {
+
+      HTTP2ServerConnectionFactory h2cf = new HTTP2ServerConnectionFactory(httpConfiguration);
+
+      if (registry != null) {
+        h2ConnFactory = new InstrumentedConnectionFactory(h2cf, registry.timer(metricName));
+      } else {
+        h2ConnFactory = h2cf;
+      }
+      ALPNServerConnectionFactory alpn = createAlpnProtocolFactory(httpConnFactory);
+      cf.setCipherComparator(HTTP2Cipher.COMPARATOR);
+      cf.setUseCipherSuitesOrder(true);
+
+      SslConnectionFactory sslCf = new SslConnectionFactory(cf, alpn.getProtocol());
+
+      connector = new ServerConnector(server, acceptors, selectors, sslCf, alpn, h2ConnFactory,
+          httpConnFactory);
+
+    } else {
+
+      connector = new ServerConnector(server, acceptors, selectors,
+          new SslConnectionFactory(cf, HttpVersion.HTTP_1_1.asString()), connFactory);
+    }
 
     connector.setPort(port);
     return connector;
   }
 
+  private ALPNServerConnectionFactory createAlpnProtocolFactory(
+      HttpConnectionFactory httpConnectionFactory) {
+    ALPNServerConnectionFactory alpn = new ALPNServerConnectionFactory();
+    alpn.setDefaultProtocol(httpConnectionFactory.getProtocol());
+    return alpn;
+  }
+
+
   /**
    * Checks that file exists and is readable.
    * 
-   * @param f
-   *          the {@link File} to be checked
-   * @param prefix
-   *          A prefix string for the error message, in case the file does not
-   *          exist and is not readable
-   * @throws RuntimeException
-   *           if the file does not exist or is not readable
+   * @param f the {@link File} to be checked
+   * @param prefix A prefix string for the error message, in case the file does not exist and is not
+   *        readable
+   * @throws RuntimeException if the file does not exist or is not readable
    */
   private void checkFileExistsAndIsReadable(File f, String prefix) {
 
@@ -509,9 +656,8 @@ public class TLSServerConnectorBuilder {
     }
 
     if (errorMessage != null) {
-      String msg = String.format("%s: %s [%s]", prefix, errorMessage,
-        f.getAbsolutePath());
-      throw new RuntimeException(msg);
+      String msg = String.format("%s: %s [%s]", prefix, errorMessage, f.getAbsolutePath());
+      throw new TLSConnectorBuilderError(msg);
     }
 
   }
