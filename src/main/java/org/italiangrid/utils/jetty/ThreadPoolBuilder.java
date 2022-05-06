@@ -39,11 +39,17 @@ public class ThreadPoolBuilder {
 
   public static final int DEFAULT_IDLE_TIMEOUT = (int) TimeUnit.MINUTES.toMillis(60);
 
+  public static final String DEFAULT_THREAD_POOL_METRIC_NAME = "thread-pool";
+  public static final String DEFAULT_THREAD_POOL_METRIC_PREFIX = "jetty";
+
   private int maxThreads = DEFAULT_MAX_THREADS;
   private int minThreads = DEFAULT_MIN_THREADS;
 
   private int idleTimeout = DEFAULT_IDLE_TIMEOUT;
   private int maxRequestQueueSize = DEFAULT_MAX_REQUEST_QUEUE_SIZE;
+
+  private String name = DEFAULT_THREAD_POOL_METRIC_NAME;
+  private String prefix = DEFAULT_THREAD_POOL_METRIC_PREFIX;
 
   private MetricRegistry registry;
 
@@ -119,6 +125,29 @@ public class ThreadPoolBuilder {
   }
 
   /**
+   * Sets the name for this thread pool
+   *
+   * @param name the thread pool name
+   * @return this builder
+   */
+  public ThreadPoolBuilder withName(String name) {
+    this.name = name;
+    return this;
+  }
+
+  /**
+   * Sets the name prefix for this thread pool
+   *
+   * @param prefix the thread pool name prefix
+   * @return this builder
+   */
+  public ThreadPoolBuilder withPrefix(String prefix) {
+    this.prefix = prefix;
+    return this;
+  }
+
+
+  /**
    * ctor.
    * 
    */
@@ -149,15 +178,24 @@ public class ThreadPoolBuilder {
       idleTimeout = DEFAULT_IDLE_TIMEOUT;
     }
 
-    BlockingQueue<Runnable> queue = new ArrayBlockingQueue<>(maxRequestQueueSize);
+    if (prefix.isEmpty()) {
+      prefix = DEFAULT_THREAD_POOL_METRIC_PREFIX;
+    }
+
+    BlockingQueue<Runnable> queue = new ArrayBlockingQueue<Runnable>(maxRequestQueueSize);
 
     QueuedThreadPool tp = null;
 
     if (registry == null) {
       tp = new QueuedThreadPool(maxThreads, minThreads, idleTimeout, queue);
     } else {
-      tp = new InstrumentedQueuedThreadPool(registry, maxThreads, minThreads, idleTimeout, queue);
+      tp = new InstrumentedQueuedThreadPool(registry, maxThreads, minThreads, idleTimeout, queue, prefix);
     }
+
+    if (name.isEmpty()) {
+      name = DEFAULT_THREAD_POOL_METRIC_NAME;
+    }
+    tp.setName(name);
 
     return tp;
 
