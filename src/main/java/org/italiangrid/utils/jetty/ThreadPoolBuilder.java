@@ -23,7 +23,8 @@ import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.util.thread.ThreadPool;
 
 import com.codahale.metrics.MetricRegistry;
-import com.codahale.metrics.jetty9.InstrumentedQueuedThreadPool;
+
+import io.dropwizard.metrics.jetty11.InstrumentedQueuedThreadPool;
 
 /**
  * 
@@ -32,6 +33,9 @@ import com.codahale.metrics.jetty9.InstrumentedQueuedThreadPool;
  */
 public class ThreadPoolBuilder {
 
+  /**
+   * 
+   */
   public static final int DEFAULT_MAX_REQUEST_QUEUE_SIZE = 200;
 
   public static final int DEFAULT_MAX_THREADS = 50;
